@@ -1,0 +1,179 @@
+---
+title: "Lab-8"
+author: "Gowri"
+  html:
+    embed-resources: true
+fig-height: 10
+fig-width: 10
+editor: visual
+---
+
+```{r}
+library(parallel)
+library(microbenchmark)
+
+#This function generates an n x k dataset with all its entries drawn from a Poission distribution with mean lambda.
+
+fun1 <- function(n = 100, k = 4, lambda = 4) {
+  x <- NULL
+  
+  for (i in 1:n){
+    x <- rbind(x, rpois(k, lambda))    
+  }
+  
+  return(x)
+}
+#refrence - exampl- squae roots (cont. 3 ) shows vectorization principle 
+
+fun1alt <- function(n = 100, k = 4, lambda = 4) {
+  x <- matrix(rpois(n*k, lambda), nrow = n, ncol = k)
+}
+
+
+  
+
+
+
+```
+
+```{r}
+#Benchmarking 
+#show that funlalt generates a matrix with the same dimensions as fun1 and 
+# that the values inside the 2 matricis folllow similar distriuitions
+
+#Ysetseed! 
+set.seed(1)
+result1 <- fun1()
+dim(result1) # dimension check 
+mean(result1)
+sd(result1)
+
+set.seed(1)
+result1alt <- fun1alt()
+dim(result1alt) # dimension check 
+mean(result1alt)
+sd(result1alt)
+
+
+#Then check the speed of the 2  functions wih rthe followinf codes 
+microbenchmark::microbenchmark(
+  fun1(),
+  fun1alt()
+)
+
+```
+
+2.  This function finds the maximum value of each column of a matrix.
+
+```{r}
+
+# Data Generating Process (10 x 10,000 matrix)
+set.seed(1234)
+x <- matrix(rnorm(1e4), nrow=10)
+
+# Find each column's max value
+fun2 <- function(x) {
+  apply(x, 2, max)
+}
+
+fun2alt <- function(x) {
+sapply(1:ncol(x), function(i) max(x[, i]))
+}
+
+#showing both teh functions are same 
+ fun2(x)
+ fun2alt(x)
+ 
+ head(fun2(x))
+ head(fun2alt(x))
+ 
+ identical(fun2(x), fun2alt(x))
+ 
+ #check the speed of. the 2 funnctions 
+ microbenchmark::microbenchmark(
+  fun2(x),
+  fun2alt(x)
+)
+
+#Show that both functions return the same output for a given input matrix, x. Then check the speed of the two functions, as you did above.
+
+
+```
+
+Problem 3 :**Parallelization**
+
+1.  This function implements a serial version of the bootstrap. Edit this function to parallelize the `lapply` loop, using whichever method you prefer. Rather than specifying the number of cores to use, use the number given by the `ncpus` argument, so that we can test it with different numbers of cores later.
+
+    ```{r}
+
+
+    # Use base R's built-in parallel package
+    library(parallel)
+
+    my_boot_serial <- function(dat, stat, R, ncpus = 1L) {
+      n   <- nrow(dat)
+      idx <- matrix(sample.int(n, n * R, TRUE), nrow = n, ncol = R)
+      ans <- lapply(seq_len(R), function(i) stat(dat[idx[, i], , drop = FALSE]))
+      ans <- do.call(rbind, ans)
+      ans
+    }
+
+    my_boot <- function(dat, stat, R, ncpus = 1L) {
+      n   <- nrow(dat)
+      # Precompute indices for reproducibility across 1 vs multi-core
+      idx <- matrix(sample.int(n, n * R, TRUE), nrow = n, ncol = R)
+
+      if (ncpus > 1L) {
+        cl <- parallel::makeCluster(ncpus)
+        on.exit(parallel::stopCluster(cl), add = TRUE)
+
+        # Make needed objects available on workers
+        parallel::clusterExport(cl, varlist = c("dat", "idx", "stat"), envir = environment())
+
+        ans <- parallel::parLapply(cl, seq_len(R), function(i) {
+          stat(dat[idx[, i], , drop = FALSE])
+        })
+      } else {
+        ans <- lapply(seq_len(R), function(i) {
+          stat(dat[idx[, i], , drop = FALSE])
+        })
+      }
+
+      ans <- do.call(rbind, ans)
+      ans
+    }
+
+    ```
+
+    ```{r}
+    #2- Once you have a version of the my_boot() function that runs on multiple cores, check that it provides accurate results by comparing it to a parametric model:
+
+    # Bootstrap of an OLS
+    my_stat <- function(d) coef(lm(y ~ x, data=d))
+
+    # DATA SIM
+    set.seed(1)
+    n <- 500; R <- 1e4
+
+    x <- cbind(rnorm(n)); y <- x*5 + rnorm(n)
+
+    # Checking if we get something similar as lm
+    ans0 <- confint(lm(y~x))
+    ans1 <- my_boot(dat = data.frame(x, y), my_stat, R = R, ncpus = 2L)
+
+    # You should get something like this
+    t(apply(ans1, 2, quantile, c(.025,.975)))
+    ##                   2.5%      97.5%
+    ## (Intercept) -0.1372435 0.05074397
+    ## x            4.8680977 5.04539763
+    ans0
+    ##                  2.5 %     97.5 %
+    ## (Intercept) -0.1379033 0.04797344
+    ## x            4.8650100 5.04883353
+
+    ```
+
+    ```{r}
+    system.time(my_boot(dat = data.frame(x, y), my_stat, R = 4000, ncpus = 1L))
+    system.time(my_boot(dat = data.frame(x, y), my_stat, R = 4000, ncpus = 2L))
+    ```
